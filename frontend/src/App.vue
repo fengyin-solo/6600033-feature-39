@@ -48,19 +48,43 @@
           <div class="grid grid-cols-2 gap-4 mb-3">
             <div>
               <label class="text-xs text-slate-500">样本组A (逗号分隔)</label>
-              <textarea v-model="group1Input" rows="2" class="w-full mt-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"></textarea>
+              <textarea v-model="store.group1" rows="2" class="w-full mt-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"></textarea>
             </div>
             <div>
               <label class="text-xs text-slate-500">样本组B (逗号分隔)</label>
-              <textarea v-model="group2Input" rows="2" class="w-full mt-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"></textarea>
+              <textarea v-model="store.group2" rows="2" class="w-full mt-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-cyan-500 resize-none"></textarea>
             </div>
           </div>
-          <button @click="runTest" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded text-sm">执行T检验</button>
+          <button @click="store.runTest" class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 rounded text-sm">执行T检验</button>
           <div v-if="store.testResult" class="mt-3 grid grid-cols-4 gap-3 text-sm">
             <div class="bg-slate-900 rounded p-2 text-center"><div class="text-xs text-slate-500 mb-1">统计量 t</div><div class="text-cyan-400 font-bold font-mono">{{ store.testResult.statistic }}</div></div>
             <div class="bg-slate-900 rounded p-2 text-center"><div class="text-xs text-slate-500 mb-1">p 值</div><div class="font-bold font-mono" :class="store.testResult.significant ? 'text-red-400' : 'text-green-400'">{{ store.testResult.pValue }}</div></div>
             <div class="bg-slate-900 rounded p-2 text-center"><div class="text-xs text-slate-500 mb-1">自由度 df</div><div class="text-slate-300 font-mono">{{ store.testResult.df }}</div></div>
             <div class="bg-slate-900 rounded p-2 text-center"><div class="text-xs text-slate-500 mb-1">显著性</div><div class="text-xs font-bold" :class="store.testResult.significant ? 'text-red-400' : 'text-green-400'">{{ store.testResult.significant ? '显著(p<0.05)' : '不显著' }}</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="px-4 pb-6">
+      <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-bold text-slate-400">历史复盘记录 <span class="text-xs text-slate-600">共 {{ store.history.length }} 条</span></h3>
+          <button @click="store.loadHistory" class="text-xs text-cyan-400 hover:text-cyan-300">↻ 刷新</button>
+        </div>
+        <div v-if="store.isHistoryLoading && store.history.length === 0" class="text-xs text-slate-500 py-4 text-center">加载中...</div>
+        <div v-else-if="store.history.length === 0" class="text-xs text-slate-500 py-4 text-center">暂无留痕记录，运行模拟或执行T检验后将自动保存结论</div>
+        <div v-else class="space-y-2 max-h-80 overflow-y-auto">
+          <div v-for="h in store.history" :key="h.id" :class="['flex items-center gap-3 p-2 rounded border text-sm transition-colors', store.activeRecordId === h.id ? 'border-cyan-500 bg-cyan-900/20' : 'border-slate-700 bg-slate-900/40']">
+            <span :class="['text-xs px-2 py-0.5 rounded font-bold whitespace-nowrap', h.record_type === 'simulation' ? 'bg-cyan-900/40 text-cyan-400' : 'bg-purple-900/40 text-purple-400']">{{ h.record_type === 'simulation' ? '模拟' : '检验' }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-slate-300 truncate">{{ h.title }}</span>
+                <span class="text-xs text-slate-600 whitespace-nowrap">{{ formatTime(h.created_at) }}</span>
+              </div>
+              <div class="text-xs text-slate-500 truncate font-mono">{{ h.summary }}</div>
+            </div>
+            <button @click="store.loadRecord(h.id)" class="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-slate-200 whitespace-nowrap">查看</button>
+            <button @click="store.deleteRecord(h.id)" class="text-xs px-2 py-1 bg-red-900/50 hover:bg-red-800 rounded text-red-300 whitespace-nowrap">删除</button>
           </div>
         </div>
       </div>
@@ -76,10 +100,15 @@ import { useMCStore, SCENARIOS } from './store/mc'
 const store = useMCStore()
 const convergenceRef = ref<HTMLDivElement | null>(null)
 const histogramRef = ref<HTMLDivElement | null>(null)
-const group1Input = ref('5.1,4.8,5.3,4.9,5.2,5.0,4.7,5.1,5.4,4.8')
-const group2Input = ref('4.6,4.2,4.9,4.3,4.5,4.7,4.4,4.8,4.1,4.6')
 let convChart: echarts.ECharts | null = null
 let histChart: echarts.ECharts | null = null
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function initCharts() {
   if (convergenceRef.value) convChart = echarts.init(convergenceRef.value, 'dark')
@@ -109,12 +138,6 @@ function updateCharts() {
   }
 }
 
-function runTest() {
-  const g1 = group1Input.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
-  const g2 = group2Input.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
-  if (g1.length > 1 && g2.length > 1) store.runTest(g1, g2)
-}
-
-onMounted(() => { initCharts(); store.runSimulation() })
+onMounted(() => { initCharts(); store.init() })
 watch(() => store.result, () => updateCharts(), { deep: true })
 </script>
